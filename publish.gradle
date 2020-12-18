@@ -1,0 +1,122 @@
+apply plugin: 'org.jetbrains.dokka-android'
+apply plugin: 'digital.wup.android-maven-publish'
+apply plugin: 'signing'
+apply plugin: 'jacoco'
+
+jacoco {
+    toolVersion = '0.8.1'
+}
+
+tasks.withType(Test) {
+    jacoco.includeNoLocationClasses = true
+}
+
+task jacocoTestReport(type: JacocoReport) {
+    group = "Reporting"
+    description = "Combine code coverage to unified report."
+
+    reports {
+        xml.enabled = true
+        html.enabled = true
+    }
+
+    def fileFilter = ['**/R.class', '**/R$*.class', '**/BuildConfig.*', '**/Manifest*.*', '**/*Test*.*', 'android/**/*.*']
+    def debugTree = fileTree(dir: "${project.buildDir}/intermediates/javac/debug/compileDebugJavaWithJavac/classes", excludes: fileFilter)
+    def mainSrc = "${project.projectDir}/src/main/java"
+    def ecSrc = fileTree(dir: "$project.buildDir", include: "**/*.ec")
+    def execSrc = fileTree(dir: "$project.buildDir", include: "**/*.exec")
+
+    doFirst {
+        def files = files([ecSrc, execSrc]).files
+        println "Creating Jacoco Report for ${files.size()} coverage files"
+        files.each { file -> println file }
+    }
+
+    sourceDirectories = files([mainSrc])
+    classDirectories = files([debugTree])
+    executionData = files([ecSrc, execSrc])
+}
+
+dokka {
+    outputFormat = 'javadoc'
+    outputDirectory = "$buildDir/javadoc"
+    sourceDirs = files('src/main/java')
+    skipEmptyPackages = true
+    skipDeprecated = false
+    noStdlibLink = false
+}
+
+task dokkaJar(type: Jar, dependsOn: dokka) {
+    classifier = 'javadoc'
+    from "$buildDir/javadoc"
+}
+
+task androidSourcesJar(type: Jar) {
+    classifier = 'sources'
+    from android.sourceSets.main.java.srcDirs
+}
+
+publishing {
+    publications {
+        mavenAar(MavenPublication) {
+            from components.android
+            groupId group
+            artifactId POM_ARTIFACT_ID
+            version version
+
+            artifact dokkaJar
+            artifact androidSourcesJar
+
+            pom.withXml {
+                def root = asNode()
+
+                root.children().last() + {
+                    resolveStrategy = DELEGATE_FIRST
+
+                    description POM_DESCRIPTION
+                    name POM_NAME
+                    url POM_URL
+                    scm {
+                        url POM_SCM_URL
+                        connection POM_SCM_CONNECTION
+                        developerConnection POM_SCM_DEV_CONNECTION
+                    }
+                    licenses {
+                        license {
+                            name POM_LICENCE_NAME
+                            url POM_LICENCE_URL
+                            distribution POM_LICENCE_DIST
+                        }
+                    }
+                    developers {
+                        developer {
+                            id POM_DEVELOPER_ID
+                            name POM_DEVELOPER_NAME
+                            email POM_DEVELOPER_EMAIL
+                            organization POM_DEVELOPER_ORGANIZATION
+                            organizationUrl POM_DEVELOPER_ORGANIZATION_URL
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    repositories {
+        def releaseUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+        def snapshotUrl = "https://oss.sonatype.org/content/repositories/snapshots"
+
+        maven {
+            url !version.contains("SNAPSHOT") ? releaseUrl : snapshotUrl
+            credentials {
+                username System.getenv('SONATYPE_USERNAME') ?: ""
+                password System.getenv('SONATYPE_PASSWORD') ?: ""
+            }
+        }
+    }
+}
+
+signing {
+    required false
+    sign publishing.publications
+}
